@@ -1,0 +1,37 @@
+[
+  {
+    "name": "biz-hunter-scout",
+    "cron": "0 */6 * * *",
+    "skill": "opportunity-scout",
+    "deliver": "[SILENT]",
+    "description": "Escanea Reddit/IndieHackers/HN/PH/Trends/X cada 6h. Inserta opps con status=raw."
+  },
+  {
+    "name": "biz-hunter-validator",
+    "cron": "30 */12 * * *",
+    "skill": "opportunity-validator",
+    "deliver": "[SILENT]",
+    "description": "Valida y scorea opps raw cada 12h. Promueve a validated/vetoed."
+  },
+  {
+    "name": "biz-hunter-builder",
+    "cron": "0 3 * * *",
+    "skill": "mvp-builder",
+    "deliver": "[SILENT]",
+    "description": "Genera y deploya hasta 3 MVPs/día (landing o tool según score)."
+  },
+  {
+    "name": "biz-hunter-tester",
+    "cron": "0 7 * * *",
+    "skill": "mvp-tester",
+    "deliver": "[SILENT]",
+    "description": "Mide signups en MVPs en tracción. Promueve a status=traction o abandoned."
+  },
+  {
+    "name": "biz-hunter-reporter",
+    "cron": "0 8 * * *",
+    "skill": "reporter",
+    "deliver": "telegram,email",
+    "description": "Digest diario 8am: tabla con todas las opps activas + tracción del día."
+  }
+]

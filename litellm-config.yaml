@@ -1,0 +1,50 @@
+# LiteLLM proxy para biz-hunter.
+# Hermes pide modelo "smart"; LiteLLM enruta a Claude (Anthropic) y si falla
+# por 429/timeout/agotamiento salta a OpenRouter free.
+
+model_list:
+  # === Claude (provider principal) ===
+  - model_name: claude-opus-4-7
+    litellm_params:
+      model: anthropic/claude-opus-4-7
+      api_key: os.environ/ANTHROPIC_API_KEY
+      timeout: 120
+      stream_timeout: 120
+
+  - model_name: claude-sonnet-4-6
+    litellm_params:
+      model: anthropic/claude-sonnet-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY
+      timeout: 120
+      stream_timeout: 120
+
+  - model_name: claude-haiku-4-5
+    litellm_params:
+      model: anthropic/claude-haiku-4-5-20251001
+      api_key: os.environ/ANTHROPIC_API_KEY
+      timeout: 90
+      stream_timeout: 90
+
+  # === Failover: OpenRouter free (Gemma) ===
+  - model_name: openrouter-gemma-fallback
+    litellm_params:
+      model: openrouter/google/gemma-4-31b-it:free
+      api_base: https://openrouter.ai/api/v1
+      api_key: os.environ/OPENROUTER_API_KEY
+      timeout: 90
+      stream_timeout: 90
+
+# Alias "smart" — failover automático.
+router_settings:
+  routing_strategy: simple-shuffle
+  fallbacks:
+    - claude-sonnet-4-6: ["claude-haiku-4-5", "openrouter-gemma-fallback"]
+    - claude-opus-4-7: ["claude-sonnet-4-6", "openrouter-gemma-fallback"]
+  num_retries: 2
+  timeout: 120
+
+# Cap de gasto diario en Anthropic (USD). Ajustable.
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  database_url: sqlite:///./litellm.db
+  max_budget: 10  # $10/día máximo. Sube/baja a tu gusto.
