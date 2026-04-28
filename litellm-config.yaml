@@ -43,8 +43,6 @@ router_settings:
   num_retries: 2
   timeout: 120
 
-# Cap de gasto diario en Anthropic (USD). Ajustable.
-general_settings:
-  master_key: os.environ/LITELLM_MASTER_KEY
-  database_url: sqlite:///./litellm.db
-  max_budget: 10  # $10/día máximo. Sube/baja a tu gusto.
+# Cap de gasto: lo controlamos en Anthropic console por ahora.
+# Si quieres budget tracking en LiteLLM, requiere Postgres
+# (añadir un servicio postgres al docker-compose).

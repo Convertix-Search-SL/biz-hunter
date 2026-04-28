@@ -17,7 +17,7 @@ services:
       # Datos de hermes (sesiones, memoria, state.db) — persistentes
       - ./hermes-data:/root/.hermes
     ports:
-      - "8443:8443"  # webhook telegram (si lo usas)
+      - "8444:8443"  # webhook telegram (8443 ya lo usa el hermes-agent original)
     command: ["gateway", "run"]
     stdin_open: true
     tty: true

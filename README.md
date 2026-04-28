@@ -1,6 +1,6 @@
 # Biz Hunter
 
-Equipo de agentes 24/7 sobre [Hermes Agent](https://github.com/NousResearch/hermes-agent) tirando de la API de Claude. Investiga oportunidades de negocio low-budget en fuentes públicas, las valida con datos reales, genera MVPs (landing/tool), mide tracción y avisa por Telegram + email cuando una pinta prometedora.
+Equipo de agentes 24/7 sobre [Hermes Agent](https://github.com/NousResearch/hermes-agent) tirando de la API de Claude. Investiga oportunidades de negocio low-budget en fuentes públicas, las valida con datos reales, genera MVPs (landing/tool), mide tracción y avisa por Telegram cuando una pinta prometedora.
 
 ## Pipeline
 
@@ -15,7 +15,7 @@ Equipo de agentes 24/7 sobre [Hermes Agent](https://github.com/NousResearch/herm
 [mvp-tester]             cada 24h  →  status=traction (signups ≥ umbral) | abandoned
         ↓
 [reporter]               diario 8am + trigger inmediato si traction
-                                   →  Telegram + email digest
+                                   →  Telegram digest
 ```
 
 Reglas, scoring y umbrales en [`strategy/hunting-rules.md`](./strategy/hunting-rules.md). Editable en caliente — las skills lo leen en cada ejecución.
@@ -27,7 +27,6 @@ Reglas, scoring y umbrales en [`strategy/hunting-rules.md`](./strategy/hunting-r
 - **SQLite** (`data/opportunities.db`) — fuente de verdad del pipeline.
 - **Cloudflare Pages** (free) — hosting de landings de MVPs.
 - **Formspree** (free 50/form) — waitlist signups.
-- **SMTP** (Gmail App Password) — email digest diario.
 - **Docker Compose** — todo orquestado, portable Mac → VPS sin cambios.
 
 ## Setup local (Mac)
@@ -45,7 +44,7 @@ docker build -t hermes-agent:local .
 
 ```bash
 cd ~/Documents/Claude\ Code/biz-hunter
-cp .env.example .env   # rellena ANTHROPIC_API_KEY, TELEGRAM_*, SMTP_*, CF_*, FORMSPREE_*
+cp .env.example .env   # rellena ANTHROPIC_API_KEY, TELEGRAM_*, CF_*, FORMSPREE_*
 python3 scripts/init_db.py
 ```
 
@@ -92,17 +91,16 @@ Asumiendo volumen target (10-20 opps nuevas/6h, 3 MVPs/día):
 | Claude API (Sonnet 4.6 mayoría, Haiku para scout) | ~$30-60 |
 | Cloudflare Pages | $0 (free tier holgado) |
 | Formspree | $0 (free 50/form, 1 form por MVP) |
-| SMTP Gmail | $0 |
 | VPS futuro (5€ Hetzner) | 5€ |
 | **Total** | **~$35-65/mes** |
 
-LiteLLM tiene `max_budget: 10` USD/día como límite duro (editable en `litellm-config.yaml`).
+Cap de gasto Claude: configurable en https://console.anthropic.com (Settings → Usage → Limits).
 
 ## Privacidad
 
 - Landings sin marca propia, en subdominios opacos `*.biz-hunter.pages.dev`.
 - `<meta name="robots" content="noindex,nofollow">` hasta validar tracción.
-- Las opps no se publican en ningún sitio — solo viven en tu BD local + tu Telegram + tu email.
+- Las opps no se publican en ningún sitio — solo viven en tu BD local + tu Telegram.
 
 ## Migración a VPS
 
@@ -141,7 +139,6 @@ biz-hunter/
 │   └── reports/            digests HTML diarios
 ├── scripts/
 │   ├── init_db.py
-│   ├── send_digest.py      SMTP wrapper
 │   └── deploy_landing.py   Cloudflare Pages wrapper
 └── tests/
     └── test_scoring.py     tests offline

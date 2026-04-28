@@ -31,7 +31,7 @@
     "name": "biz-hunter-reporter",
     "cron": "0 8 * * *",
     "skill": "reporter",
-    "deliver": "telegram,email",
-    "description": "Digest diario 8am: tabla con todas las opps activas + tracción del día."
+    "deliver": "telegram",
+    "description": "Digest diario 8am por Telegram: resumen del pipeline + tracción del día."
   }
 ]

@@ -1,6 +1,6 @@
 ---
 name: reporter
-description: Cron diario 8am que envía digest a email + telegram con el estado del pipeline biz-hunter (opps activas, MVPs en tracción, abandonadas, métricas del día). También se invoca on-demand cuando otra skill detecta nueva tracción.
+description: Cron diario 8am que envía digest por Telegram con el estado del pipeline biz-hunter (opps activas, MVPs en tracción, abandonadas, métricas del día). También se invoca on-demand cuando otra skill detecta nueva tracción.
 version: 0.1.0
 author: david
 metadata:
@@ -11,7 +11,7 @@ metadata:
 
 # Reporter
 
-Tu trabajo: generar el **digest diario 8am** y enviarlo por **Telegram + email**. También responder a invocaciones on-demand desde `mvp-tester` cuando detecta tracción nueva.
+Tu trabajo: generar el **digest diario 8am** y enviarlo por **Telegram**. También responder a invocaciones on-demand desde `mvp-tester` cuando detecta tracción nueva.
 
 ## Reglas de operación
 
@@ -19,9 +19,7 @@ Tu trabajo: generar el **digest diario 8am** y enviarlo por **Telegram + email**
    - **`/reporter`** sin args → digest diario completo.
    - **`/reporter --traction <opp_id>`** → mensaje corto e inmediato (solo Telegram).
 2. **Idempotencia**: una opp `traction` solo se notifica una vez (campo `notified_at` se llena tras el push). El digest diario sí incluye opps ya notificadas (resumen).
-3. **Telegram**: usa `send_message(target='telegram', ...)`.
-4. **Email**: ejecuta `python /opt/biz-hunter/scripts/send_digest.py` que toma el HTML generado y lo manda via SMTP.
-5. **Output del cron**: como `deliver=telegram,email`, el output del cron se entrega también automáticamente por esos canales — pero queremos formato bonito, así que generamos el digest dentro de la skill y solo emitimos el resumen plano del cron.
+3. **Canal único: Telegram**. Usa `send_message(target='telegram', ...)`.
 
 ## Flujo
 
@@ -34,11 +32,9 @@ Tu trabajo: generar el **digest diario 8am** y enviarlo por **Telegram + email**
    - Validadas pendientes de MVP (`status=validated`).
    - Raw pendientes de validar (`status=raw` count).
    - Vetadas/abandonadas hoy (count, no detalle).
-2. Genera markdown (texto plano) → para Telegram.
-3. Genera HTML (tabla + estilos inline) → para email.
-4. Push Telegram con `send_message`.
-5. `subprocess.run(["python", "/opt/biz-hunter/scripts/send_digest.py", "--html-file", html_path])`.
-6. Marca `notified_at = NOW()` en las traction nuevas.
+2. Genera markdown plano (Telegram soporta MarkdownV2 o texto).
+3. Push Telegram con `send_message`.
+4. Marca `notified_at = NOW()` en las traction nuevas.
 
 ### Modo `--traction <opp_id>`
 
@@ -83,10 +79,6 @@ Razonamiento:
 {score_reasoning truncado a 300 chars}
 ```
 
-### Email HTML
-
-Tabla bootstrap-style con todas las opps activas + bloque destacado en amarillo arriba con las nuevas tracciones del día. Plantilla embebida en `scripts/send_digest.py`.
-
 ## Implementación
 
 ```python
@@ -125,12 +117,7 @@ def query_summary(conn) -> dict:
 
 
 def render_telegram_digest(summary: dict) -> str:
-    # ... (formatea)
-    pass
-
-
-def render_html_digest(summary: dict) -> str:
-    # ... (HTML con tabla)
+    # ... (formatea markdown plano para Telegram)
     pass
 
 
@@ -145,17 +132,13 @@ def mark_notified(conn, ids: list[int]):
 
 ## Output esperado
 
-Devuelve un resumen breve del cron (ya que el digest detallado va a Telegram/email):
+Devuelve un resumen breve del cron (el digest detallado va a Telegram):
 
 ```
 ## Reporter run @ 2026-04-28T08:00 UTC
 
-Digest enviado:
-  · Telegram: ✅
-  · Email: ✅ (a david.ruiz@convertix.net)
-
+Digest Telegram: ✅
 Nuevas tracciones notificadas: 2
-HTML guardado en data/reports/2026-04-28.html
 ```
 
 ## Frecuencia
