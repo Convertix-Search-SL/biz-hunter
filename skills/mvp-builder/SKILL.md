@@ -17,7 +17,7 @@ Tu trabajo: tomar las **top-3 oportunidades validated** (sin `mvp_path`), genera
 
 1. **Top-3 por score** ordenado descendente. Solo `status=validated` y `mvp_path IS NULL`.
 2. **Tipo de MVP según score**:
-   - `60 ≤ score < 80`: solo landing + waitlist (Formspree).
+   - `60 ≤ score < 80`: solo landing + waitlist (Supabase).
    - `score ≥ 80`: landing + herramienta funcional básica (Python/JS según naturaleza).
 3. **Stack landing**: HTML + Tailwind via CDN (sin build step). Una sola página, sin SPA. Mobile-first.
 4. **Stack tool funcional**: si es lógica client-side → vanilla JS en la misma página. Si requiere backend → FastAPI single-file en `data/mvps/<slug>/server.py` (despliegue manual cuando llegue ese caso, por ahora marca `mvp_type=tool` y deja note).
@@ -29,7 +29,7 @@ Tu trabajo: tomar las **top-3 oportunidades validated** (sin `mvp_path`), genera
 ```
 data/mvps/<slug>/
 ├── index.html
-├── deploy_meta.json    # { "cf_pages_url": "...", "deployed_at": "...", "form_id": "..." }
+├── deploy_meta.json    # { "cf_pages_url": "...", "deployed_at": "...", "mvp_slug": "..." }
 └── README.md           # qué problema resuelve, vertical, MVP type, score
 ```
 
@@ -42,21 +42,58 @@ data/mvps/<slug>/
    - Sección problema (3-5 bullets con el pain point real).
    - Sección solución (qué resuelve el producto).
    - Beneficios (3 bullets concretos).
-   - CTA de waitlist con formulario Formspree.
+   - CTA de waitlist con formulario Supabase.
    - Footer mínimo (sin marca, solo "© 2026").
 
 2. **Genera HTML** insertando el copy en una plantilla base (incluida en `data/mvps/_template/index.html` — la creas la primera vez).
 
-3. **Crea form Formspree**: `POST https://formspree.io/api/0/forms` con `FORMSPREE_API_KEY`. Guarda el `form_id`.
+3. **Inyecta el formulario Supabase** en el HTML. NO hace falta crear nada
+   en Supabase por cada landing — usamos una única tabla `waitlist_signups`
+   donde cada signup lleva su `mvp_slug` para distinguir.
 
-4. **Inserta `<form action="https://formspree.io/{form_id}">`** en el HTML.
+   El form usa fetch JS contra el REST API de Supabase con la **anon key**
+   (segura para exponer públicamente; RLS bloquea SELECT). Plantilla:
 
-5. **Deploy a Cloudflare Pages**:
-   - Comando: `wrangler pages deploy data/mvps/<slug> --project-name biz-hunter`
-   - El subdominio queda `https://<commit-hash>.biz-hunter.pages.dev` (Cloudflare lo asigna).
+   ```html
+   <form id="waitlist" onsubmit="return submitSignup(event)">
+     <input type="email" name="email" required placeholder="tu@email.com">
+     <button type="submit">Get early access</button>
+   </form>
+
+   <script>
+   const SUPABASE_URL = "{{SUPABASE_URL}}";
+   const SUPABASE_ANON = "{{SUPABASE_ANON_KEY}}";
+   const MVP_SLUG = "{{MVP_SLUG}}";
+
+   async function submitSignup(e) {
+     e.preventDefault();
+     const email = e.target.email.value;
+     const r = await fetch(`${SUPABASE_URL}/rest/v1/waitlist_signups`, {
+       method: "POST",
+       headers: {
+         "apikey": SUPABASE_ANON,
+         "Authorization": `Bearer ${SUPABASE_ANON}`,
+         "Content-Type": "application/json",
+         "Prefer": "return=minimal"
+       },
+       body: JSON.stringify({ mvp_slug: MVP_SLUG, email })
+     });
+     if (r.ok) e.target.outerHTML = "<p>✅ Estás dentro. Te avisamos pronto.</p>";
+     else alert("Error, prueba de nuevo");
+     return false;
+   }
+   </script>
+   ```
+
+   Reemplaza los `{{SUPABASE_URL}}`, `{{SUPABASE_ANON_KEY}}` (de env) y
+   `{{MVP_SLUG}}` (slug de la opp) en el HTML antes de deployar.
+
+4. **Deploy a Cloudflare Pages**:
+   - Comando: `wrangler pages deploy data/mvps/<slug> --project-name biz-hunter-mvps`
+   - El subdominio queda `https://<commit-hash>.biz-hunter-mvps.pages.dev`.
    - Captura la URL en `deploy_meta.json`.
 
-6. **Update BD**:
+5. **Update BD**:
    ```sql
    UPDATE opportunities SET
      status = 'mvp_live',
@@ -112,7 +149,7 @@ def deploy_to_cloudflare(slug: str, mvp_dir: Path) -> str:
 
 
 # (continúa con flujo completo: para cada opp, generar HTML con Claude,
-#  crear form Formspree, insertar action, deploy, update BD)
+#  crear form Supabase, insertar action, deploy, update BD)
 ```
 
 ## Plantilla HTML base (genérica)

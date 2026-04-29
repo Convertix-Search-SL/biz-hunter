@@ -1,6 +1,6 @@
 ---
 name: mvp-tester
-description: Cada 24h consulta los signups de los formularios Formspree de los MVPs en mvp_live, actualiza waitlist_signups en BD, y promueve a status=traction si supera el umbral del archivo de reglas.
+description: Cada 24h consulta los signups en Supabase (tabla waitlist_signups, filtrado por mvp_slug) de los MVPs en mvp_live, actualiza waitlist_signups en BD, y promueve a status=traction si supera el umbral del archivo de reglas.
 version: 0.1.0
 author: david
 metadata:
@@ -17,7 +17,7 @@ Tu trabajo: medir tracción real de los MVPs `mvp_live` y decidir si pasan a `tr
 
 1. Lee `/opt/biz-hunter/strategy/hunting-rules.md` para los umbrales de tracción (puede haber cambios).
 2. Procesa todas las opps con `status='mvp_live'`.
-3. **No re-procees** opps con `last_signup_check < 18h` (evita spamear API Formspree).
+3. **No re-procees** opps con `last_signup_check < 18h` (evita queries innecesarias).
 4. **Tiempo de gracia**: 14 días desde `mvp_live`. Pasados sin tracción → `abandoned`.
 5. **Trigger inmediato a reporter**: si una opp pasa a `traction` por primera vez, llama directamente al tool `send_message` para notificar a Telegram (no esperes al cron diario).
 
@@ -25,13 +25,20 @@ Tu trabajo: medir tracción real de los MVPs `mvp_live` y decidir si pasan a `tr
 
 Para cada opp `mvp_live`:
 
-1. Lee `data/mvps/<slug>/deploy_meta.json` → `form_id`.
-2. Llama a Formspree API:
+1. Lee el `mvp_slug` de la opp (puede sacarse del path `data/mvps/<slug>` o del campo `mvp_path` en BD).
+2. Consulta Supabase REST API con `service_role` key (lee, RLS lo permite):
    ```
-   GET https://formspree.io/api/0/forms/{form_id}/submissions
-   Header: Authorization: Bearer {FORMSPREE_API_KEY}
+   GET {SUPABASE_URL}/rest/v1/waitlist_signups?
+       mvp_slug=eq.{slug}&
+       created_at=gte.{cutoff_iso}&
+       select=id
+   Headers:
+     apikey: {SUPABASE_SERVICE_KEY}
+     Authorization: Bearer {SUPABASE_SERVICE_KEY}
+     Prefer: count=exact
    ```
-3. Cuenta submissions de las últimas 72h.
+   El header `Content-Range` de la respuesta da el total exacto en formato `0-N/total`.
+3. Extrae el conteo de últimas 72h.
 4. Update BD:
    ```sql
    UPDATE opportunities SET
@@ -60,7 +67,8 @@ DB = Path("/opt/biz-hunter/data/opportunities.db")
 MVPS_DIR = Path("/opt/biz-hunter/data/mvps")
 RULES = Path("/opt/biz-hunter/strategy/hunting-rules.md")
 
-FORMSPREE_KEY = os.environ["FORMSPREE_API_KEY"]
+SUPABASE_URL = os.environ["SUPABASE_URL"].rstrip("/")
+SUPABASE_SERVICE_KEY = os.environ["SUPABASE_SERVICE_KEY"]
 
 
 def fetch_mvp_live(conn) -> list[dict]:
@@ -75,15 +83,27 @@ def fetch_mvp_live(conn) -> list[dict]:
     return [dict(zip(cols, row)) for row in cur.fetchall()]
 
 
-def get_signup_count(form_id: str, window_hours: int = 72) -> int:
+def get_signup_count(mvp_slug: str, window_hours: int = 72) -> int:
     import urllib.request
     import urllib.parse
     cutoff = (datetime.now(timezone.utc) - timedelta(hours=window_hours)).isoformat()
-    url = f"https://formspree.io/api/0/forms/{form_id}/submissions"
-    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {FORMSPREE_KEY}"})
+    qs = urllib.parse.urlencode({
+        "mvp_slug": f"eq.{mvp_slug}",
+        "created_at": f"gte.{cutoff}",
+        "select": "id",
+    })
+    url = f"{SUPABASE_URL}/rest/v1/waitlist_signups?{qs}"
+    req = urllib.request.Request(url, headers={
+        "apikey": SUPABASE_SERVICE_KEY,
+        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
+        "Prefer": "count=exact",
+        "Range-Unit": "items",
+        "Range": "0-0",  # solo nos interesa el header Content-Range
+    })
     with urllib.request.urlopen(req, timeout=15) as r:
-        data = json.loads(r.read())
-    return sum(1 for s in data.get("submissions", []) if s["created_at"] >= cutoff)
+        # Content-Range: "0-0/N" → N es el total exacto
+        cr = r.headers.get("Content-Range", "0-0/0")
+        return int(cr.split("/")[-1])
 
 
 def reached_traction(opp: dict, signups: int) -> bool:
@@ -137,7 +157,7 @@ MVP: {opp['mvp_url']}
 😴 Abandonadas: 3 (>14 días sin tracción)
    · #87, #94, #101
 
-API Formspree calls: 12 (rate-limit: 100/h, va sobrado).
+Supabase REST queries: 12 (free tier muy holgado).
 ```
 
 ## Frecuencia
