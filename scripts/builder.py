@@ -38,7 +38,9 @@ CF_ACCOUNT = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
 N8N_SIGNUP_URL = os.environ.get(
     "N8N_WEBHOOK_SIGNUP_URL", "https://n8n.convertix.net/webhook/biz-hunter/signup"
 )
-TOP_N = 3
+# Cuántas opps approved procesa en cada run. El builder corre cada 30min, así
+# que si hay 10 aprobadas se desplegarán en ~5 runs (cap natural por coste tokens).
+MAX_PER_RUN = 5
 
 
 COPY_SYSTEM = """Eres un copywriter de landings de validación de demanda.
@@ -183,12 +185,16 @@ async function submitSignup(e) {{
 """
 
 
-def fetch_top_validated(c, n: int) -> list[dict]:
+def fetch_approved(c, n: int) -> list[dict]:
+    """Procesa opps que el user aprobó manualmente via Telegram (status=approved).
+
+    Orden: por approved_at ASC (FIFO de la cola). Cap MAX_PER_RUN por ejecución.
+    """
     cur = c.execute(
         """SELECT id, title, pain_point, vertical, score, score_reasoning
            FROM opportunities
-           WHERE status = 'validated' AND mvp_path IS NULL
-           ORDER BY score DESC
+           WHERE status = 'approved' AND mvp_path IS NULL
+           ORDER BY approved_at ASC
            LIMIT ?""",
         (n,),
     )
@@ -374,18 +380,18 @@ def build_one(opp: dict) -> dict:
 
 def main() -> int:
     with conn() as c:
-        top = fetch_top_validated(c, TOP_N)
+        queue = fetch_approved(c, MAX_PER_RUN)
 
-    if not top:
-        print("[builder] no hay validated sin MVP")
-        send_telegram("🛠 *Builder*: 0 validated pendientes de MVP.")
+    if not queue:
+        # Silencioso: el cron es cada 30min, no spamees Telegram con "0 nada".
+        print("[builder] cola approved vacía")
         return 0
 
-    print(f"[builder] {len(top)} opps a montar (top score {top[0]['score']})")
+    print(f"[builder] {len(queue)} opps approved a montar")
 
     results = []
     failures = 0
-    for opp in top:
+    for opp in queue:
         try:
             r = build_one(opp)
             results.append(r)
@@ -396,7 +402,7 @@ def main() -> int:
             failures += 1
             print(f"[builder] error en opp {opp['id']}: {e}")
 
-    lines = [f"🛠 *Builder run*", f"MVPs montados: {len(results)} / {len(top)}"]
+    lines = [f"🛠 *Builder run*", f"MVPs montados: {len(results)} / {len(queue)}"]
     for r in results:
         emoji = "🚀" if r["mvp_url"] else "⚠️"
         lines.append(f"{emoji} `[{r['score']}]` _{r['mvp_type']}_ — {r['title'][:60]}")

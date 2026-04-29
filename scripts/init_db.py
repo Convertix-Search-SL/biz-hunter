@@ -34,7 +34,11 @@ CREATE TABLE IF NOT EXISTS opportunities (
     mvp_type TEXT,                -- 'landing' | 'tool'
     waitlist_signups INTEGER DEFAULT 0,
     last_signup_check TIMESTAMP,
+    -- Estados:
+    -- raw → validated → approved → mvp_live → traction
+    -- (rejected si user descarta validated, vetoed por reglas, abandoned post-mvp)
     status TEXT NOT NULL DEFAULT 'raw',
+    approved_at TIMESTAMP,        -- timestamp de aprobación manual (botón Telegram)
     notified_at TIMESTAMP,
     notes TEXT
 );
@@ -42,6 +46,7 @@ CREATE TABLE IF NOT EXISTS opportunities (
 CREATE INDEX IF NOT EXISTS idx_status ON opportunities(status);
 CREATE INDEX IF NOT EXISTS idx_score ON opportunities(score DESC);
 CREATE INDEX IF NOT EXISTS idx_discovered ON opportunities(discovered_at DESC);
+CREATE INDEX IF NOT EXISTS idx_status_approved ON opportunities(status, approved_at);
 """
 
 

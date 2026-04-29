@@ -19,13 +19,21 @@ from init_db import SCHEMA  # noqa: E402
 
 
 VALID_STATUSES = {
-    "raw", "validated", "vetoed",
+    "raw", "validated", "vetoed", "approved", "rejected",
     "mvp_live", "traction", "reported", "abandoned",
 }
 
 VALID_VERTICALS = {"microsaas", "content_seo", "digital_product", "newsletter"}
 
-EXPECTED_SCRIPTS = ["scout.py", "validator.py", "builder.py", "tester.py", "reporter.py"]
+EXPECTED_SCRIPTS = [
+    "scout.py", "validator.py", "builder.py", "tester.py", "reporter.py",
+    "notify_validated.py", "telegram_listener.py",
+]
+# Scripts que van al crontab (los long-running se ejecutan como container service).
+CRON_SCRIPTS = [
+    "scout.py", "validator.py", "builder.py", "tester.py", "reporter.py",
+    "notify_validated.py",
+]
 
 
 @pytest.fixture
@@ -61,12 +69,20 @@ def test_hunting_rules_existe_y_tiene_secciones_clave():
         assert section in text, f"Falta sección '{section}' en hunting-rules.md"
 
 
-def test_crontab_lista_los_5_scripts():
+def test_crontab_lista_los_scripts_periodicos():
     crontab = ROOT / "infra" / "crontab"
     assert crontab.is_file(), "Falta infra/crontab"
     text = crontab.read_text()
-    for script in EXPECTED_SCRIPTS:
+    for script in CRON_SCRIPTS:
         assert f"scripts/{script}" in text, f"Falta {script} en infra/crontab"
+
+
+def test_telegram_listener_es_long_running():
+    """telegram_listener corre como service Docker, no como cron job."""
+    crontab = (ROOT / "infra" / "crontab").read_text()
+    assert "telegram_listener" not in crontab, "listener no debe estar en crontab"
+    compose = (ROOT / "docker-compose.yml").read_text()
+    assert "telegram_listener.py" in compose, "listener debe estar como service en compose"
 
 
 def test_score_threshold_validated():

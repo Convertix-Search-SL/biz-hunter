@@ -11,46 +11,36 @@ services:
       - ./:/opt/biz-hunter
     restart: unless-stopped
 
-  hermes:
-    image: hermes-agent:local  # build local desde el repo de hermes-agent vecino
-    container_name: hermes-biz
+  bot:
+    # Listener Telegram long-polling. Recibe callbacks de los botones
+    # aprobar/descartar y comandos /status, /run <target>, /help.
+    # Reusa la misma imagen que cron (tiene Python + deps).
+    build:
+      context: .
+      dockerfile: Dockerfile.cron
+    container_name: biz-hunter-bot
     env_file: .env
     environment:
-      HERMES_UID: "${HERMES_UID:-501}"
-      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
+      BIZ_HUNTER_DB: /opt/biz-hunter/data/opportunities.db
     volumes:
-      # Montamos el repo entero como /opt/biz-hunter para que las skills
-      # accedan a data/, strategy/, scripts/.
       - ./:/opt/biz-hunter
-      # Skills custom: hermes las descubre en ~/.hermes/skills/
-      - ./skills:/root/.hermes/skills/biz-hunter
-      # Cron jobs persistentes
-      - ./cron:/root/.hermes/cron-config
-      # Datos de hermes (sesiones, memoria, state.db) — persistentes
-      - ./hermes-data:/root/.hermes
-    ports:
-      - "8444:8443"  # webhook telegram (8443 ya lo usa el hermes-agent original)
-    command: ["gateway", "run"]
-    stdin_open: true
-    tty: true
+    command: ["python", "/opt/biz-hunter/scripts/telegram_listener.py"]
     restart: unless-stopped
     depends_on:
-      litellm:
-        condition: service_healthy
+      - cron
 
-  # Proxy LiteLLM: failover Claude API → OpenRouter free como red de seguridad.
-  # Si Anthropic da 429 o cae, salta al free de OpenRouter sin romper.
-  litellm:
-    image: ghcr.io/berriai/litellm:main-latest
-    container_name: hermes-biz-litellm
-    env_file: .env
-    volumes:
-      - ./litellm-config.yaml:/app/config.yaml:ro
-    command: ["--config", "/app/config.yaml", "--port", "4000", "--num_workers", "1"]
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4000/health/liveliness', timeout=3).read()"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-    restart: unless-stopped
+  # Hermes-biz: deshabilitado por ahora — el listener `bot` toma el polling
+  # del Telegram (un solo proceso puede hacer getUpdates a la vez). Si en el
+  # futuro queremos reactivar Hermes para conversación libre, parar el bot
+  # primero.
+  # hermes:
+  #   image: hermes-agent:local
+  #   container_name: hermes-biz
+  #   ...
+
+  # LiteLLM: deshabilitado — los scripts usan Anthropic SDK directo. Si más
+  # adelante quieres failover OpenRouter, reactivar y modificar lib/llm.py
+  # para apuntar al base_url del proxy.
+  # litellm:
+  #   image: ghcr.io/berriai/litellm:main-latest
+  #   ...
