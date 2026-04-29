@@ -1,5 +1,11 @@
 # Setup de n8n para biz-hunter
 
+> **Estado actual**: ✅ ya montado en `n8n.convertix.net` via CLI (29-abr-2026).
+> Credencial `biz-hunter Postgres` + workflows `biz-hunter: Signup` y `biz-hunter: Count signups` importados y activos.
+>
+> Esta guía es de referencia/operación: usar si hay que recrear todo o
+> migrar a otra instancia n8n.
+
 3 pasos: crear credencial Postgres → importar 2 workflows → activarlos.
 
 ## 1. Credencial Postgres en n8n
