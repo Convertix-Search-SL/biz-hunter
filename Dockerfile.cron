@@ -1,0 +1,25 @@
+# Container cron dedicado para biz-hunter.
+# Imagen ligera con Python + las deps de los scripts. Ejecuta cron del
+# sistema, que dispara los scripts de scripts/.
+FROM python:3.13-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    cron tini \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt/biz-hunter
+
+# Deps
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
+
+# Crontab
+COPY infra/crontab /etc/cron.d/biz-hunter
+RUN chmod 0644 /etc/cron.d/biz-hunter && crontab /etc/cron.d/biz-hunter
+
+# Logs a stdout para que docker logs los vea
+RUN ln -sf /dev/stdout /var/log/biz-hunter.log
+
+# tini como pid 1, cron en foreground
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["cron", "-f", "-L", "15"]

@@ -1,0 +1,22 @@
+# Crontab biz-hunter.
+# Cron de Linux: el container `biz-hunter-cron` dispara los scripts.
+# Vars de entorno se cargan desde /opt/biz-hunter/.env via env-file en docker-compose.
+# Output va a /var/log/biz-hunter.log → linkado a stdout, visible con `docker logs`.
+
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Scout: cada 6h
+0 */6 * * * root cd /opt/biz-hunter && python scripts/scout.py >> /var/log/biz-hunter.log 2>&1
+
+# Validator: cada 12h, offset 30min
+30 1,13 * * * root cd /opt/biz-hunter && python scripts/validator.py >> /var/log/biz-hunter.log 2>&1
+
+# Builder: 3am diario
+0 3 * * * root cd /opt/biz-hunter && python scripts/builder.py >> /var/log/biz-hunter.log 2>&1
+
+# Tester: 7am diario
+0 7 * * * root cd /opt/biz-hunter && python scripts/tester.py >> /var/log/biz-hunter.log 2>&1
+
+# Reporter digest: 8am diario
+0 8 * * * root cd /opt/biz-hunter && python scripts/reporter.py >> /var/log/biz-hunter.log 2>&1

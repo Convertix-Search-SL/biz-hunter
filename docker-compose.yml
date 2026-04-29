@@ -1,4 +1,16 @@
 services:
+  cron:
+    build:
+      context: .
+      dockerfile: Dockerfile.cron
+    container_name: biz-hunter-cron
+    env_file: .env
+    environment:
+      BIZ_HUNTER_DB: /opt/biz-hunter/data/opportunities.db
+    volumes:
+      - ./:/opt/biz-hunter
+    restart: unless-stopped
+
   hermes:
     image: hermes-agent:local  # build local desde el repo de hermes-agent vecino
     container_name: hermes-biz
