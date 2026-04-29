@@ -92,12 +92,13 @@ def test_sources_existen():
         assert (sources / src).is_file(), f"Falta scripts/sources/{src}"
 
 
-def test_scout_es_ejecutable_python():
-    """El scout debe tener shebang y __main__ block."""
-    scout = ROOT / "scripts" / "scout.py"
-    assert scout.is_file()
-    text = scout.read_text()
-    assert text.startswith("#!/usr/bin/env python"), "scout.py debe tener shebang"
+@pytest.mark.parametrize("name", EXPECTED_SCRIPTS)
+def test_script_es_ejecutable_python(name: str):
+    """Los 5 scripts del pipeline deben tener shebang y __main__ block."""
+    script = ROOT / "scripts" / name
+    assert script.is_file(), f"Falta scripts/{name}"
+    text = script.read_text()
+    assert text.startswith("#!/usr/bin/env python"), f"{name} debe tener shebang"
     assert 'if __name__ == "__main__"' in text
 
 

@@ -22,8 +22,10 @@ Reglas, scoring y umbrales en [`strategy/hunting-rules.md`](./strategy/hunting-r
 
 ## Stack
 
-- **Hermes Agent** (NousResearch) — orquestador, skills, cron, gateway Telegram, subagentes paralelos.
-- **Claude API** (Anthropic) directo + **LiteLLM** como failover a OpenRouter free.
+- **Scripts Python** (`scripts/`) — pipeline determinista, cada paso autónomo.
+- **Claude API** (Anthropic SDK directo) — usado por validator/builder/scout para razonamiento (clasificación, scoring, copy).
+- **Container `biz-hunter-cron`** — cron de Linux clásico que dispara los scripts según `infra/crontab`.
+- **Container `hermes-biz`** — gateway Telegram (uso futuro: comandos `/biz status` bidireccionales).
 - **SQLite** (`data/opportunities.db`) — fuente de verdad del pipeline.
 - **Cloudflare Pages** (free) — hosting de landings de MVPs.
 - **n8n + Postgres VPS** — waitlist signups via webhook (sin servicios externos, reúsa infra Convertix). Setup en `n8n/SETUP.md`.
@@ -31,16 +33,7 @@ Reglas, scoring y umbrales en [`strategy/hunting-rules.md`](./strategy/hunting-r
 
 ## Setup local (Mac)
 
-### 1. Build de la imagen Hermes
-
-Asumiendo que tienes el repo de Hermes Agent vecino:
-
-```bash
-cd ~/Documents/Claude\ Code/hermes-agent
-docker build -t hermes-agent:local .
-```
-
-### 2. Configurar este proyecto
+### 1. Configurar `.env`
 
 ```bash
 cd ~/Documents/Claude\ Code/biz-hunter
@@ -48,31 +41,39 @@ cp .env.example .env   # rellena ANTHROPIC_API_KEY, TELEGRAM_*, CF_*, N8N_WEBHOO
 python3 scripts/init_db.py
 ```
 
-### 3. Arrancar stack
+### 2. Arrancar stack
 
 ```bash
 docker compose up -d
-docker compose logs -f hermes
+docker compose logs -f cron     # cron container
+docker compose logs -f hermes   # gateway Telegram (opcional)
 ```
 
-### 4. Smoke test (manual antes de activar cron)
+### 3. Smoke test (run manual de cada script)
 
 ```bash
-docker exec -it hermes-biz hermes session new
-# Dentro de la session:
-/opportunity-scout
-/opportunity-validator
-/mvp-builder
-/mvp-tester
-/reporter
+# Desde el host (con venv local):
+.venv/bin/python scripts/scout.py        # fetch fuentes + clasifica + insert raw
+.venv/bin/python scripts/validator.py    # scorea raw → validated/vetoed
+.venv/bin/python scripts/builder.py      # top-3 → genera landing → CF Pages
+.venv/bin/python scripts/tester.py       # mide signups via webhook n8n
+.venv/bin/python scripts/reporter.py     # digest Telegram
+
+# O desde el container cron:
+docker exec biz-hunter-cron python /opt/biz-hunter/scripts/scout.py
 ```
 
-### 5. Activar cron
+### 4. Cron ya activo
 
-```bash
-docker exec -it hermes-biz sh -c "for j in /opt/biz-hunter/cron/jobs.json; do hermes cron load \$j; done"
-docker exec -it hermes-biz hermes cron list
-```
+`infra/crontab` ya está montado en el container `biz-hunter-cron`:
+
+| Script | Schedule |
+|---|---|
+| scout.py | `0 */6 * * *` (cada 6h) |
+| validator.py | `30 1,13 * * *` (12h, offset 30min) |
+| builder.py | `0 3 * * *` (3am) |
+| tester.py | `0 7 * * *` (7am) |
+| reporter.py | `0 8 * * *` (8am) |
 
 ## Tests offline
 

@@ -4,7 +4,10 @@
 FROM python:3.13-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    cron tini \
+    cron tini curl ca-certificates \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && npm install -g wrangler@latest \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/biz-hunter
