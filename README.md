@@ -26,7 +26,7 @@ Reglas, scoring y umbrales en [`strategy/hunting-rules.md`](./strategy/hunting-r
 - **Claude API** (Anthropic) directo + **LiteLLM** como failover a OpenRouter free.
 - **SQLite** (`data/opportunities.db`) — fuente de verdad del pipeline.
 - **Cloudflare Pages** (free) — hosting de landings de MVPs.
-- **Supabase Free** — waitlist signups (tabla `waitlist_signups` con anon insert + RLS).
+- **n8n + Postgres VPS** — waitlist signups via webhook (sin servicios externos, reúsa infra Convertix). Setup en `n8n/SETUP.md`.
 - **Docker Compose** — todo orquestado, portable Mac → VPS sin cambios.
 
 ## Setup local (Mac)
@@ -44,7 +44,7 @@ docker build -t hermes-agent:local .
 
 ```bash
 cd ~/Documents/Claude\ Code/biz-hunter
-cp .env.example .env   # rellena ANTHROPIC_API_KEY, TELEGRAM_*, CF_*, SUPABASE_*
+cp .env.example .env   # rellena ANTHROPIC_API_KEY, TELEGRAM_*, CF_*, N8N_WEBHOOK_*
 python3 scripts/init_db.py
 ```
 
@@ -90,7 +90,7 @@ Asumiendo volumen target (10-20 opps nuevas/6h, 3 MVPs/día):
 |---|---|
 | Claude API (Sonnet 4.6 mayoría, Haiku para scout) | ~$30-60 |
 | Cloudflare Pages | $0 (free tier holgado) |
-| Supabase | $0 (free tier 50k MAU, 500MB DB) |
+| n8n + Postgres (VPS) | $0 (ya pagado en Convertix) |
 | VPS futuro (5€ Hetzner) | 5€ |
 | **Total** | **~$35-65/mes** |
 

@@ -1,6 +1,6 @@
 ---
 name: mvp-builder
-description: Toma las top-3 oportunidades validated sin MVP cada 24h, genera el contenido (landing si score<80, landing+tool si score≥80) y deploya a Cloudflare Pages. Marca la opp como mvp_live con la URL pública.
+description: Toma las top-3 oportunidades validated sin MVP cada 24h, genera el contenido (landing si score<80, landing+tool si score≥80) con form que postea a webhook n8n→Postgres, y deploya a Cloudflare Pages. Marca la opp como mvp_live con la URL pública.
 version: 0.1.0
 author: david
 metadata:
@@ -17,7 +17,7 @@ Tu trabajo: tomar las **top-3 oportunidades validated** (sin `mvp_path`), genera
 
 1. **Top-3 por score** ordenado descendente. Solo `status=validated` y `mvp_path IS NULL`.
 2. **Tipo de MVP según score**:
-   - `60 ≤ score < 80`: solo landing + waitlist (Supabase).
+   - `60 ≤ score < 80`: solo landing + waitlist (n8n webhook).
    - `score ≥ 80`: landing + herramienta funcional básica (Python/JS según naturaleza).
 3. **Stack landing**: HTML + Tailwind via CDN (sin build step). Una sola página, sin SPA. Mobile-first.
 4. **Stack tool funcional**: si es lógica client-side → vanilla JS en la misma página. Si requiere backend → FastAPI single-file en `data/mvps/<slug>/server.py` (despliegue manual cuando llegue ese caso, por ahora marca `mvp_type=tool` y deja note).
@@ -42,17 +42,17 @@ data/mvps/<slug>/
    - Sección problema (3-5 bullets con el pain point real).
    - Sección solución (qué resuelve el producto).
    - Beneficios (3 bullets concretos).
-   - CTA de waitlist con formulario Supabase.
+   - CTA de waitlist con formulario n8n webhook.
    - Footer mínimo (sin marca, solo "© 2026").
 
 2. **Genera HTML** insertando el copy en una plantilla base (incluida en `data/mvps/_template/index.html` — la creas la primera vez).
 
-3. **Inyecta el formulario Supabase** en el HTML. NO hace falta crear nada
-   en Supabase por cada landing — usamos una única tabla `waitlist_signups`
-   donde cada signup lleva su `mvp_slug` para distinguir.
+3. **Inyecta el formulario** en el HTML que postea al webhook n8n. NO hace
+   falta crear nada nuevo por cada landing — usamos un único webhook
+   `${N8N_WEBHOOK_SIGNUP_URL}` que inserta en la tabla `waitlist_signups`
+   (Postgres VPS) etiquetando con el `mvp_slug` para distinguir.
 
-   El form usa fetch JS contra el REST API de Supabase con la **anon key**
-   (segura para exponer públicamente; RLS bloquea SELECT). Plantilla:
+   Plantilla:
 
    ```html
    <form id="waitlist" onsubmit="return submitSignup(event)">
@@ -61,21 +61,15 @@ data/mvps/<slug>/
    </form>
 
    <script>
-   const SUPABASE_URL = "{{SUPABASE_URL}}";
-   const SUPABASE_ANON = "{{SUPABASE_ANON_KEY}}";
+   const SIGNUP_URL = "{{N8N_WEBHOOK_SIGNUP_URL}}";
    const MVP_SLUG = "{{MVP_SLUG}}";
 
    async function submitSignup(e) {
      e.preventDefault();
      const email = e.target.email.value;
-     const r = await fetch(`${SUPABASE_URL}/rest/v1/waitlist_signups`, {
+     const r = await fetch(SIGNUP_URL, {
        method: "POST",
-       headers: {
-         "apikey": SUPABASE_ANON,
-         "Authorization": `Bearer ${SUPABASE_ANON}`,
-         "Content-Type": "application/json",
-         "Prefer": "return=minimal"
-       },
+       headers: { "Content-Type": "application/json" },
        body: JSON.stringify({ mvp_slug: MVP_SLUG, email })
      });
      if (r.ok) e.target.outerHTML = "<p>✅ Estás dentro. Te avisamos pronto.</p>";
@@ -85,8 +79,9 @@ data/mvps/<slug>/
    </script>
    ```
 
-   Reemplaza los `{{SUPABASE_URL}}`, `{{SUPABASE_ANON_KEY}}` (de env) y
-   `{{MVP_SLUG}}` (slug de la opp) en el HTML antes de deployar.
+   Reemplaza `{{N8N_WEBHOOK_SIGNUP_URL}}` (del env) y `{{MVP_SLUG}}`
+   (slug de la opp) en el HTML antes de deployar. **No exponemos
+   credenciales** — el webhook valida y filtra el input en n8n.
 
 4. **Deploy a Cloudflare Pages**:
    - Comando: `wrangler pages deploy data/mvps/<slug> --project-name biz-hunter-mvps`
@@ -149,7 +144,7 @@ def deploy_to_cloudflare(slug: str, mvp_dir: Path) -> str:
 
 
 # (continúa con flujo completo: para cada opp, generar HTML con Claude,
-#  crear form Supabase, insertar action, deploy, update BD)
+#  crear form n8n webhook, insertar action, deploy, update BD)
 ```
 
 ## Plantilla HTML base (genérica)

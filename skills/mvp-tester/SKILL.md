@@ -1,6 +1,6 @@
 ---
 name: mvp-tester
-description: Cada 24h consulta los signups en Supabase (tabla waitlist_signups, filtrado por mvp_slug) de los MVPs en mvp_live, actualiza waitlist_signups en BD, y promueve a status=traction si supera el umbral del archivo de reglas.
+description: Cada 24h consulta los signups via webhook n8n (Postgres VPS, tabla waitlist_signups filtrada por mvp_slug) de los MVPs en mvp_live, actualiza waitlist_signups en BD local, y promueve a status=traction si supera el umbral del archivo de reglas.
 version: 0.1.0
 author: david
 metadata:
@@ -25,20 +25,16 @@ Tu trabajo: medir tracción real de los MVPs `mvp_live` y decidir si pasan a `tr
 
 Para cada opp `mvp_live`:
 
-1. Lee el `mvp_slug` de la opp (puede sacarse del path `data/mvps/<slug>` o del campo `mvp_path` en BD).
-2. Consulta Supabase REST API con `service_role` key (lee, RLS lo permite):
+1. Lee el `mvp_slug` de la opp (sacable del path `data/mvps/<slug>` o del campo `mvp_path` en BD).
+2. Consulta el webhook n8n (público, sin auth — el endpoint solo expone count, no PII):
    ```
-   GET {SUPABASE_URL}/rest/v1/waitlist_signups?
-       mvp_slug=eq.{slug}&
-       created_at=gte.{cutoff_iso}&
-       select=id
-   Headers:
-     apikey: {SUPABASE_SERVICE_KEY}
-     Authorization: Bearer {SUPABASE_SERVICE_KEY}
-     Prefer: count=exact
+   GET {N8N_WEBHOOK_COUNT_URL}?slug={slug}&hours=72
    ```
-   El header `Content-Range` de la respuesta da el total exacto en formato `0-N/total`.
-3. Extrae el conteo de últimas 72h.
+   Respuesta:
+   ```json
+   {"mvp_slug":"...","hours":72,"signups":7,"last_signup":"2026-04-29T..."}
+   ```
+3. Extrae `signups` de la respuesta.
 4. Update BD:
    ```sql
    UPDATE opportunities SET
@@ -67,8 +63,7 @@ DB = Path("/opt/biz-hunter/data/opportunities.db")
 MVPS_DIR = Path("/opt/biz-hunter/data/mvps")
 RULES = Path("/opt/biz-hunter/strategy/hunting-rules.md")
 
-SUPABASE_URL = os.environ["SUPABASE_URL"].rstrip("/")
-SUPABASE_SERVICE_KEY = os.environ["SUPABASE_SERVICE_KEY"]
+N8N_COUNT_URL = os.environ["N8N_WEBHOOK_COUNT_URL"]
 
 
 def fetch_mvp_live(conn) -> list[dict]:
@@ -86,24 +81,11 @@ def fetch_mvp_live(conn) -> list[dict]:
 def get_signup_count(mvp_slug: str, window_hours: int = 72) -> int:
     import urllib.request
     import urllib.parse
-    cutoff = (datetime.now(timezone.utc) - timedelta(hours=window_hours)).isoformat()
-    qs = urllib.parse.urlencode({
-        "mvp_slug": f"eq.{mvp_slug}",
-        "created_at": f"gte.{cutoff}",
-        "select": "id",
-    })
-    url = f"{SUPABASE_URL}/rest/v1/waitlist_signups?{qs}"
-    req = urllib.request.Request(url, headers={
-        "apikey": SUPABASE_SERVICE_KEY,
-        "Authorization": f"Bearer {SUPABASE_SERVICE_KEY}",
-        "Prefer": "count=exact",
-        "Range-Unit": "items",
-        "Range": "0-0",  # solo nos interesa el header Content-Range
-    })
+    qs = urllib.parse.urlencode({"slug": mvp_slug, "hours": window_hours})
+    req = urllib.request.Request(f"{N8N_COUNT_URL}?{qs}")
     with urllib.request.urlopen(req, timeout=15) as r:
-        # Content-Range: "0-0/N" → N es el total exacto
-        cr = r.headers.get("Content-Range", "0-0/0")
-        return int(cr.split("/")[-1])
+        data = json.loads(r.read())
+    return int(data.get("signups", 0))
 
 
 def reached_traction(opp: dict, signups: int) -> bool:
@@ -157,7 +139,7 @@ MVP: {opp['mvp_url']}
 😴 Abandonadas: 3 (>14 días sin tracción)
    · #87, #94, #101
 
-Supabase REST queries: 12 (free tier muy holgado).
+n8n webhook calls: 12 (Postgres VPS, sin límite real).
 ```
 
 ## Frecuencia

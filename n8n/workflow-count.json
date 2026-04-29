@@ -1,0 +1,80 @@
+{
+  "name": "biz-hunter: Count signups",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "biz-hunter/count",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-count",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "biz-hunter-count"
+    },
+    {
+      "parameters": {
+        "jsCode": "const q = $input.first().json.query || {};\nconst slug = String(q.slug || '').trim().slice(0, 80);\nconst hours = Math.max(1, Math.min(720, parseInt(q.hours || '72', 10)));\n\nif (!slug) {\n  return [{ json: { error: 'missing_slug' } }];\n}\n\nreturn [{ json: { mvp_slug: slug, hours: hours } }];"
+      },
+      "id": "parse",
+      "name": "Parse query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT COUNT(*)::int AS signups, MAX(created_at) AS last_signup FROM waitlist_signups WHERE mvp_slug = $1 AND created_at >= NOW() - ($2 || ' hours')::INTERVAL;",
+        "options": {
+          "queryReplacement": "={{ $json.mvp_slug }}, {{ $json.hours }}"
+        }
+      },
+      "id": "count-query",
+      "name": "Count query",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [680, 300],
+      "credentials": {
+        "postgres": {
+          "id": "biz-hunter-postgres",
+          "name": "biz-hunter Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { mvp_slug: $('Parse query').first().json.mvp_slug, hours: $('Parse query').first().json.hours, signups: $json.signups, last_signup: $json.last_signup } }}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              { "name": "Cache-Control", "value": "no-cache" }
+            ]
+          }
+        }
+      },
+      "id": "respond",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.2,
+      "position": [900, 300]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [[{ "node": "Parse query", "type": "main", "index": 0 }]]
+    },
+    "Parse query": {
+      "main": [[{ "node": "Count query", "type": "main", "index": 0 }]]
+    },
+    "Count query": {
+      "main": [[{ "node": "Respond", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" }
+}
