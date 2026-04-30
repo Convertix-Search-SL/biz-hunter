@@ -35,18 +35,41 @@ CREATE TABLE IF NOT EXISTS opportunities (
     waitlist_signups INTEGER DEFAULT 0,
     last_signup_check TIMESTAMP,
     -- Estados:
-    -- raw → validated → approved → mvp_live → traction
-    -- (rejected si user descarta validated, vetoed por reglas, abandoned post-mvp)
+    -- raw → validated → approved → mvp_live → traction → project_live
+    -- (rejected, vetoed, abandoned, project_failed son terminales/recuperables)
     status TEXT NOT NULL DEFAULT 'raw',
     approved_at TIMESTAMP,        -- timestamp de aprobación manual (botón Telegram)
     notified_at TIMESTAMP,
-    notes TEXT
+    notes TEXT,
+    -- Project Builder (V1 funcional tras tracción)
+    project_path TEXT,            -- data/projects/<slug>/
+    project_url TEXT,             -- http://localhost:<port> (host) o futuro VPS
+    project_port INTEGER,         -- 4001-4099
+    project_built_at TIMESTAMP,
+    project_spec TEXT,            -- PRD markdown que generó el LLM
+    project_template TEXT         -- microsaas | content_seo | digital_product | newsletter
 );
 
 CREATE INDEX IF NOT EXISTS idx_status ON opportunities(status);
 CREATE INDEX IF NOT EXISTS idx_score ON opportunities(score DESC);
 CREATE INDEX IF NOT EXISTS idx_discovered ON opportunities(discovered_at DESC);
 CREATE INDEX IF NOT EXISTS idx_status_approved ON opportunities(status, approved_at);
+CREATE INDEX IF NOT EXISTS idx_project_path ON opportunities(project_path);
+
+-- Cola de builds: bot inserta filas via /build <id>; build_queue_worker drena.
+CREATE TABLE IF NOT EXISTS build_requests (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    opp_id INTEGER NOT NULL REFERENCES opportunities(id),
+    requested_by TEXT NOT NULL,        -- 'cron-traction' | 'tg-user:<chat_id>'
+    force INTEGER NOT NULL DEFAULT 0,  -- 1 = ignora estado actual, fuerza build
+    requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    processed_at TIMESTAMP,            -- NULL mientras pendiente
+    status TEXT,                       -- 'ok' | 'failed' tras procesar
+    error TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_build_requests_pending
+    ON build_requests(processed_at) WHERE processed_at IS NULL;
 """
 
 

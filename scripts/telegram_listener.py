@@ -191,10 +191,37 @@ def cmd_help(chat_id: int):
         "Comandos:\n"
         "  `/status` — counts del pipeline\n"
         "  `/run scout` | `validator` | `builder` | `tester` | `reporter` | `notify`\n"
+        "  `/build <opp_id>` — encola un proyecto V1 para construir\n"
         "  `/help` — esta ayuda\n\n"
         "También respondo a los botones de las opps validadas (aprobar/descartar)."
     )
     send_message(chat_id, text)
+
+
+def cmd_build(chat_id: int, user_id: int, opp_id_str: str):
+    """Encola una build. Inserta en build_requests; el worker la coge en ≤1min."""
+    try:
+        opp_id = int(opp_id_str)
+    except ValueError:
+        send_message(chat_id, "Uso: `/build <opp_id>` (entero)")
+        return
+    with conn() as c:
+        opp = c.execute(
+            "SELECT id, title, status FROM opportunities WHERE id = ?", (opp_id,),
+        ).fetchone()
+        if not opp:
+            send_message(chat_id, f"❌ Opp {opp_id} no existe")
+            return
+        c.execute(
+            """INSERT INTO build_requests (opp_id, requested_by, force)
+               VALUES (?, ?, 1)""",
+            (opp_id, f"tg-user:{chat_id}"),
+        )
+    send_message(
+        chat_id,
+        f"⏳ Encolado build de opp {opp_id} (`{opp[1][:60]}`, status={opp[2]}).\n"
+        f"El worker lo coge en ≤1 min. Te aviso al terminar.",
+    )
 
 
 def handle_message(msg: dict):
@@ -210,6 +237,8 @@ def handle_message(msg: dict):
     if text.startswith("/run "):
         target = text[5:].strip().split()[0]
         cmd_run(chat_id, target); return
+    if text.startswith("/build "):
+        cmd_build(chat_id, user_id, text[7:].strip()); return
     if text in ("/help", "/start"):
         cmd_help(chat_id); return
 
