@@ -61,7 +61,7 @@ def slugify(s: str, maxlen: int = 50) -> str:
     return s[:maxlen] or "post"
 
 
-def build(opp: dict, dest_dir: Path) -> dict:
+def build(opp: dict, dest_dir: Path, port: int | None = None) -> dict:
     dest_dir.mkdir(parents=True, exist_ok=True)
     (dest_dir / "src" / "content" / "posts").mkdir(parents=True, exist_ok=True)
     (dest_dir / "src" / "pages").mkdir(parents=True, exist_ok=True)
@@ -219,13 +219,15 @@ def build(opp: dict, dest_dir: Path) -> dict:
         EXPOSE 80
     """))
 
+    # Port hardcoded (mismo motivo que microsaas).
+    host_port = port or 8080
     (dest_dir / "docker-compose.yml").write_text(dedent(f"""\
         services:
           web:
             build: .
             container_name: biz-hunter-project-{dest_dir.name}
             ports:
-              - "${{PROJECT_PORT:-8080}}:80"
+              - "{host_port}:80"
             restart: unless-stopped
     """))
 
@@ -250,8 +252,8 @@ def build(opp: dict, dest_dir: Path) -> dict:
 
         ## Run
         ```bash
-        PROJECT_PORT=8080 docker compose up -d --build
-        # http://localhost:8080
+        docker compose up -d --build
+        # http://localhost:{host_port}
         ```
 
         ## Itera

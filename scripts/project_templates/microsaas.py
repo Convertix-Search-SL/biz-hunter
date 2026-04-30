@@ -5,6 +5,7 @@
 2. app.py FastAPI con SQLite local.
 3. static/index.html Tailwind CDN que llama al endpoint.
 """
+import ast
 import json
 import sys
 from pathlib import Path
@@ -63,7 +64,14 @@ Reglas:
 Devuelve SOLO el HTML, sin code fence."""
 
 
-def build(opp: dict, dest_dir: Path) -> dict:
+def _strip_fence(s: str) -> str:
+    if s.startswith("```"):
+        lines = s.splitlines()
+        s = "\n".join(lines[1:-1] if lines[-1].startswith("```") else lines[1:])
+    return s
+
+
+def build(opp: dict, dest_dir: Path, port: int | None = None) -> dict:
     dest_dir.mkdir(parents=True, exist_ok=True)
     (dest_dir / "static").mkdir(exist_ok=True)
     (dest_dir / "data").mkdir(exist_ok=True)
@@ -78,26 +86,34 @@ def build(opp: dict, dest_dir: Path) -> dict:
     )
     spec = ask_json(SPEC_SYSTEM, spec_user, max_tokens=1500)
 
-    # 2. app.py
+    # 2. app.py — max_tokens alto + retry si parse falla.
+    # FastAPI single-file con SQLite + endpoint puede pasar de 4k tokens.
     code_user = (
         f"Spec del feature:\n```json\n{json.dumps(spec, indent=2)}\n```\n\n"
-        f"Genera el `app.py` completo."
+        f"Genera el `app.py` completo. Mantén el código compacto para que quepa en una sola respuesta."
     )
-    app_py = ask_text(CODE_SYSTEM, code_user, max_tokens=4096)
-    # Limpia code fence si lo coló
-    if app_py.startswith("```"):
-        lines = app_py.splitlines()
-        app_py = "\n".join(lines[1:-1] if lines[-1].startswith("```") else lines[1:])
+    app_py = None
+    for attempt in range(2):
+        candidate = _strip_fence(ask_text(CODE_SYSTEM, code_user, max_tokens=8192))
+        try:
+            ast.parse(candidate)
+            app_py = candidate
+            break
+        except SyntaxError as e:
+            print(f"[microsaas] app.py parse falló intento {attempt + 1}: {e}")
+            code_user += f"\n\nNota: la respuesta anterior tenía SyntaxError ({e}). Genera código completo y compilable."
+    if app_py is None:
+        # Fallback: usar último intento aunque tenga sintaxis rota — el user
+        # lo verá en logs y podrá iterar a mano.
+        app_py = candidate
+        print("[microsaas] WARN: app.py con SyntaxError tras 2 intentos, escribiendo igualmente")
 
     # 3. index.html
     html_user = (
         f"Spec del feature:\n```json\n{json.dumps(spec, indent=2)}\n```\n\n"
         f"Genera el `static/index.html` que llama a {spec['endpoint']}."
     )
-    html = ask_text(HTML_SYSTEM, html_user, max_tokens=3000)
-    if html.startswith("```"):
-        lines = html.splitlines()
-        html = "\n".join(lines[1:-1] if lines[-1].startswith("```") else lines[1:])
+    html = _strip_fence(ask_text(HTML_SYSTEM, html_user, max_tokens=3000))
 
     # Render archivos
     (dest_dir / "app.py").write_text(app_py)
@@ -114,16 +130,24 @@ def build(opp: dict, dest_dir: Path) -> dict:
         CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
     """))
 
+    # Port hardcoded (no ${VAR}) para evitar problemas de env propagation
+    # cuando el compose lo lanza un subprocess desde otro container.
+    # Volumen NAMED (no bind ./data) porque el daemon del host no resuelve
+    # el path relativo cuando el cliente compose corre desde otro container.
+    host_port = port or 8000
     (dest_dir / "docker-compose.yml").write_text(dedent(f"""\
         services:
           app:
             build: .
             container_name: biz-hunter-project-{dest_dir.name}
             ports:
-              - "${{PROJECT_PORT:-8000}}:8000"
+              - "{host_port}:8000"
             volumes:
-              - ./data:/app/data
+              - app-data:/app/data
             restart: unless-stopped
+
+        volumes:
+          app-data:
     """))
 
     spec_md = dedent(f"""\
@@ -159,14 +183,15 @@ def build(opp: dict, dest_dir: Path) -> dict:
 
         ## Run
         ```bash
-        PROJECT_PORT=8000 docker compose up -d --build
-        # Abre http://localhost:8000
+        docker compose up -d --build
+        # Abre http://localhost:{host_port}
         ```
 
         ## Itera
         - Lógica core: `app.py`
         - UI: `static/index.html`
         - Spec del feature: `PROJECT_SPEC.md`
+        - Cambia el puerto editando `docker-compose.yml`
     """))
 
     return {

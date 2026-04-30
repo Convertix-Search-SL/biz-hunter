@@ -240,7 +240,7 @@ def main(opp_id: int, force: bool, rebuild: bool, tg_chat: str | None) -> int:
     push_tg(f"⏳ Construyendo opp {opp_id}: <b>{opp['title'][:80]}</b>\n→ {template_name}, port {port}", tg_chat)
 
     try:
-        meta = template_mod.build(opp, dest_dir)
+        meta = template_mod.build(opp, dest_dir, port)
     except Exception as e:
         with conn() as c:
             mark_failed(c, opp_id, f"template error: {e}")

@@ -30,7 +30,7 @@ Devuelve markdown con:
 """
 
 
-def build(opp: dict, dest_dir: Path) -> dict:
+def build(opp: dict, dest_dir: Path, port: int | None = None) -> dict:  # noqa: ARG001
     dest_dir.mkdir(parents=True, exist_ok=True)
 
     spec_user = (

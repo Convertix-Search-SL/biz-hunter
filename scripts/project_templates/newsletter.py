@@ -34,7 +34,7 @@ Reglas:
 Devuelve SOLO el cuerpo del email (sin asunto, sin firma)."""
 
 
-def build(opp: dict, dest_dir: Path) -> dict:
+def build(opp: dict, dest_dir: Path, port: int | None = None) -> dict:  # noqa: ARG001
     dest_dir.mkdir(parents=True, exist_ok=True)
     (dest_dir / "emails").mkdir(exist_ok=True)
 
