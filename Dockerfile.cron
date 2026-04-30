@@ -16,9 +16,12 @@ WORKDIR /opt/biz-hunter
 COPY requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
-# Crontab
+# Crontab — solo /etc/cron.d/ (formato system-cron, con columna USER).
+# IMPORTANTE: NO usar `crontab /etc/cron.d/biz-hunter` porque carga el archivo
+# como user-crontab y choca con el formato (la columna USER es inválida en
+# user-crontabs). El cron daemon lee /etc/cron.d/ automáticamente al arrancar.
 COPY infra/crontab /etc/cron.d/biz-hunter
-RUN chmod 0644 /etc/cron.d/biz-hunter && crontab /etc/cron.d/biz-hunter
+RUN chmod 0644 /etc/cron.d/biz-hunter
 
 # Logs a stdout para que docker logs los vea
 RUN ln -sf /dev/stdout /var/log/biz-hunter.log
