@@ -49,9 +49,19 @@ def answer_callback(callback_id: str, text: str = ""):
     api("answerCallbackQuery", callback_query_id=callback_id, text=text)
 
 
-def send_message(chat_id: int, text: str, parse_mode: str = "Markdown"):
-    api("sendMessage", chat_id=chat_id, text=text[:4000], parse_mode=parse_mode,
-        disable_web_page_preview=True)
+def _esc(s: str) -> str:
+    return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def send_message(chat_id: int, text: str, parse_mode: str = "HTML"):
+    """Default HTML — más permisivo con caracteres especiales que Markdown.
+    Si el caller pasa Markdown legacy, queda como 'HTML' por defecto y los
+    callers críticos (cmd_build, cmd_status, etc.) ya usan tags HTML."""
+    r = api("sendMessage", chat_id=chat_id, text=text[:4000], parse_mode=parse_mode,
+            disable_web_page_preview=True)
+    if r and not r.get("ok"):
+        print(f"[listener] send_message FAILED: {r.get('description', r)}")
+    return r
 
 
 def edit_message(chat_id: int, message_id: int, text: str):
@@ -166,9 +176,9 @@ def cmd_status(chat_id: int):
             """SELECT status, COUNT(*) FROM opportunities GROUP BY status
                ORDER BY status""",
         ).fetchall()
-    lines = ["📊 *Pipeline status*"]
+    lines = ["📊 <b>Pipeline status</b>"]
     for status, n in rows:
-        lines.append(f"  · {status}: {n}")
+        lines.append(f"  · {_esc(status)}: {n}")
     send_message(chat_id, "\n".join(lines))
 
 
@@ -182,19 +192,46 @@ def cmd_run(chat_id: int, target: str):
     send_message(chat_id, f"⏳ Ejecutando {target}...")
     rc, last = run_script(valid[target])
     emoji = "✅" if rc == 0 else "❌"
-    send_message(chat_id, f"{emoji} *{target}* (rc={rc})\n```\n{last[:3500]}\n```")
+    send_message(chat_id, f"{emoji} <b>{_esc(target)}</b> (rc={rc})\n<pre>{_esc(last[:3500])}</pre>")
 
 
 def cmd_help(chat_id: int):
     text = (
-        "*Biz Hunter Bot*\n\n"
+        "<b>Biz Hunter Bot</b>\n\n"
         "Comandos:\n"
-        "  `/status` — counts del pipeline\n"
-        "  `/run scout` | `validator` | `builder` | `tester` | `reporter` | `notify`\n"
-        "  `/help` — esta ayuda\n\n"
+        "  <code>/status</code> — counts del pipeline\n"
+        "  <code>/run scout|validator|builder|tester|reporter|notify</code>\n"
+        "  <code>/build &lt;opp_id&gt;</code> — encola un proyecto V1 para construir\n"
+        "  <code>/help</code> — esta ayuda\n\n"
         "También respondo a los botones de las opps validadas (aprobar/descartar)."
     )
     send_message(chat_id, text)
+
+
+def cmd_build(chat_id: int, user_id: int, opp_id_str: str):
+    """Encola una build. Inserta en build_requests; el worker la coge en ≤1min."""
+    try:
+        opp_id = int(opp_id_str)
+    except ValueError:
+        send_message(chat_id, "Uso: <code>/build &lt;opp_id&gt;</code> (entero)")
+        return
+    with conn() as c:
+        opp = c.execute(
+            "SELECT id, title, status FROM opportunities WHERE id = ?", (opp_id,),
+        ).fetchone()
+        if not opp:
+            send_message(chat_id, f"❌ Opp {opp_id} no existe")
+            return
+        c.execute(
+            """INSERT INTO build_requests (opp_id, requested_by, force)
+               VALUES (?, ?, 1)""",
+            (opp_id, f"tg-user:{chat_id}"),
+        )
+    send_message(
+        chat_id,
+        f"⏳ Encolado build de opp {opp_id} (<code>{_esc(opp[1][:60])}</code>, status={_esc(opp[2])}).\n"
+        f"El worker lo coge en ≤1 min. Te aviso al terminar.",
+    )
 
 
 def handle_message(msg: dict):
@@ -210,6 +247,8 @@ def handle_message(msg: dict):
     if text.startswith("/run "):
         target = text[5:].strip().split()[0]
         cmd_run(chat_id, target); return
+    if text.startswith("/build "):
+        cmd_build(chat_id, user_id, text[7:].strip()); return
     if text in ("/help", "/start"):
         cmd_help(chat_id); return
 

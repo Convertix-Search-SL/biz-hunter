@@ -1,0 +1,27 @@
+# Crontab para supercronic (formato 5 fields + comando, SIN columna user).
+# Se monta en el container biz-hunter-cron y lo lee supercronic en foreground.
+# Logs van a stdout (visible con `docker logs`).
+
+# Scout: cada 6h
+0 */6 * * * cd /opt/biz-hunter && python scripts/scout.py
+
+# Validator: 4 veces al día (cada 6h, offset 30min)
+30 */6 * * * cd /opt/biz-hunter && python scripts/validator.py
+
+# Notify validated → Telegram con botones aprobar/rechazar
+# Cada 4h, offset 45min para no chocar con validator
+45 */4 * * * cd /opt/biz-hunter && python scripts/notify_validated.py
+
+# Builder: cada 30min, procesa la cola de approved (FIFO, max 5/run)
+*/30 * * * * cd /opt/biz-hunter && python scripts/builder.py
+
+# Tester: 3 veces al día (cada 8h)
+0 */8 * * * cd /opt/biz-hunter && python scripts/tester.py
+
+# Reporter digest diario: 8am
+0 8 * * * cd /opt/biz-hunter && python scripts/reporter.py
+
+# Build Queue Worker: cada 1 min, drena build_requests + traction.
+# Es el único cron del project_builder; project_builder.py se ejecuta
+# como subprocess desde aquí (no se pone como cron directo).
+* * * * * cd /opt/biz-hunter && python scripts/build_queue_worker.py

@@ -7,8 +7,15 @@ services:
     env_file: .env
     environment:
       BIZ_HUNTER_DB: /opt/biz-hunter/data/opportunities.db
+      HOST_UID: "${HOST_UID:-501}"
+      HOST_GID: "${HOST_GID:-20}"
+      MAX_BUILDS_PER_DAY: "${MAX_BUILDS_PER_DAY:-8}"
     volumes:
       - ./:/opt/biz-hunter
+      # docker.sock del host: project_builder lanza `docker compose up`
+      # contra el daemon del host (no docker-in-docker). En Mac dev OK; para
+      # VPS futuro migrar a docker rootless.
+      - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped
 
   bot:

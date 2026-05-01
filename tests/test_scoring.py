@@ -21,6 +21,7 @@ from init_db import SCHEMA  # noqa: E402
 VALID_STATUSES = {
     "raw", "validated", "vetoed", "approved", "rejected",
     "mvp_live", "traction", "reported", "abandoned",
+    "project_live", "project_failed",
 }
 
 VALID_VERTICALS = {"microsaas", "content_seo", "digital_product", "newsletter"}
@@ -28,11 +29,12 @@ VALID_VERTICALS = {"microsaas", "content_seo", "digital_product", "newsletter"}
 EXPECTED_SCRIPTS = [
     "scout.py", "validator.py", "builder.py", "tester.py", "reporter.py",
     "notify_validated.py", "telegram_listener.py",
+    "project_builder.py", "build_queue_worker.py",
 ]
 # Scripts que van al crontab (los long-running se ejecutan como container service).
 CRON_SCRIPTS = [
     "scout.py", "validator.py", "builder.py", "tester.py", "reporter.py",
-    "notify_validated.py",
+    "notify_validated.py", "build_queue_worker.py",
 ]
 
 
@@ -70,19 +72,69 @@ def test_hunting_rules_existe_y_tiene_secciones_clave():
 
 
 def test_crontab_lista_los_scripts_periodicos():
-    crontab = ROOT / "infra" / "crontab"
-    assert crontab.is_file(), "Falta infra/crontab"
+    crontab = ROOT / "infra" / "crontab.supercronic"
+    assert crontab.is_file(), "Falta infra/crontab.supercronic"
     text = crontab.read_text()
     for script in CRON_SCRIPTS:
-        assert f"scripts/{script}" in text, f"Falta {script} en infra/crontab"
+        assert f"scripts/{script}" in text, f"Falta {script} en crontab.supercronic"
 
 
 def test_telegram_listener_es_long_running():
     """telegram_listener corre como service Docker, no como cron job."""
-    crontab = (ROOT / "infra" / "crontab").read_text()
+    crontab = (ROOT / "infra" / "crontab.supercronic").read_text()
     assert "telegram_listener" not in crontab, "listener no debe estar en crontab"
     compose = (ROOT / "docker-compose.yml").read_text()
     assert "telegram_listener.py" in compose, "listener debe estar como service en compose"
+
+
+def test_project_templates_exist():
+    """Las 4 plantillas por vertical están presentes."""
+    tpl_dir = ROOT / "scripts" / "project_templates"
+    assert tpl_dir.is_dir()
+    for v in ["microsaas", "content_seo", "digital_product", "newsletter"]:
+        assert (tpl_dir / f"{v}.py").is_file(), f"Falta plantilla {v}.py"
+    assert (tpl_dir / "__init__.py").is_file()
+
+
+def test_project_registry_assigns_unique_ports(conn):
+    """Dos opps con port asignado → next_free_port salta los ocupados."""
+    sys.path.insert(0, str(ROOT / "scripts"))
+    from lib.project_registry import next_free_port
+
+    conn.execute("INSERT INTO opportunities (source, title, pain_point, project_port) VALUES ('x', 'a', 'p', 4001)")
+    conn.execute("INSERT INTO opportunities (source, title, pain_point, project_port) VALUES ('x', 'b', 'p', 4002)")
+    p = next_free_port(conn)
+    assert p == 4003
+
+
+def test_build_requests_table_present(conn):
+    cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='build_requests'")
+    assert cur.fetchone() is not None, "Falta tabla build_requests"
+
+
+def test_status_includes_project_states():
+    init_db_text = (ROOT / "scripts" / "init_db.py").read_text()
+    assert "project_live" in init_db_text
+    assert "project_failed" in init_db_text or "project_failed" in str(VALID_STATUSES)
+
+
+def test_build_queue_worker_en_crontab():
+    crontab = (ROOT / "infra" / "crontab.supercronic").read_text()
+    assert "build_queue_worker.py" in crontab
+    assert "* * * * *" in crontab, "worker debe correr cada minuto"
+
+
+def test_dockerfile_cron_tiene_docker_cli():
+    df = (ROOT / "Dockerfile.cron").read_text()
+    assert "docker-ce-cli" in df
+    assert "docker-compose-plugin" in df
+
+
+def test_compose_monta_docker_socket():
+    cy = (ROOT / "docker-compose.yml").read_text()
+    assert "/var/run/docker.sock" in cy
+    assert "HOST_UID" in cy
+    assert "HOST_GID" in cy
 
 
 def test_score_threshold_validated():

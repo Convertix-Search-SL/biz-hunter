@@ -1,31 +1,50 @@
 # Container cron dedicado para biz-hunter.
-# Imagen ligera con Python + las deps de los scripts. Ejecuta cron del
-# sistema, que dispara los scripts de scripts/.
+#
+# Usa `supercronic` en lugar del cron de Debian. Razones:
+# - Cron de Debian con `/etc/cron.d/` y inotify no funciona fiable en
+#   containers minimal sin systemd (vimos 24h con cero ejecuciones pese a
+#   archivo correcto, daemon up y formato OK).
+# - supercronic está hecho específicamente para containers: lee un crontab
+#   estándar, ejecuta jobs y vuelca logs a stdout sin trucos. Sin syslog.
+# - Mismo formato 5-fields que /etc/cron.d/ pero SIN columna USER.
 FROM python:3.13-slim
 
+# Instalar deps base + Node (wrangler) + supercronic + Docker CLI + compose plugin
+# Docker CLI es necesario para que project_builder.py pueda hacer
+# `docker compose up -d` en los proyectos generados (via socket mount del host).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    cron tini curl ca-certificates \
+        tini curl ca-certificates gnupg \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && npm install -g wrangler@latest \
+    && SUPERCRONIC_VERSION=v0.2.29 \
+    && SUPERCRONIC_SHA1SUM=cd48d45c4b10f3f0bfdd3a57d054cd05ac96812b \
+    && curl -fsSL -o /usr/local/bin/supercronic \
+        "https://github.com/aptible/supercronic/releases/download/${SUPERCRONIC_VERSION}/supercronic-linux-amd64" \
+    && echo "${SUPERCRONIC_SHA1SUM}  /usr/local/bin/supercronic" | sha1sum -c - \
+    && chmod +x /usr/local/bin/supercronic \
+    && install -m 0755 -d /etc/apt/keyrings \
+    && curl -fsSL https://download.docker.com/linux/debian/gpg \
+        | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
+    && chmod a+r /etc/apt/keyrings/docker.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian $(. /etc/os-release && echo $VERSION_CODENAME) stable" \
+        > /etc/apt/sources.list.d/docker.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+        docker-ce-cli docker-compose-plugin \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/biz-hunter
 
-# Deps
+# Python deps
 COPY requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
-# Crontab — solo /etc/cron.d/ (formato system-cron, con columna USER).
-# IMPORTANTE: NO usar `crontab /etc/cron.d/biz-hunter` porque carga el archivo
-# como user-crontab y choca con el formato (la columna USER es inválida en
-# user-crontabs). El cron daemon lee /etc/cron.d/ automáticamente al arrancar.
-COPY infra/crontab /etc/cron.d/biz-hunter
-RUN chmod 0644 /etc/cron.d/biz-hunter
+# Crontab para supercronic. Formato 6 campos (5 schedule + comando), SIN USER.
+# El archivo final lo monta el volume (./infra/crontab.supercronic).
 
-# Logs a stdout para que docker logs los vea
+# Logs a stdout
 RUN ln -sf /dev/stdout /var/log/biz-hunter.log
 
-# tini como pid 1, cron en foreground
 ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD ["cron", "-f", "-L", "15"]
+CMD ["supercronic", "-passthrough-logs", "/opt/biz-hunter/infra/crontab.supercronic"]

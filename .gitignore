@@ -10,6 +10,9 @@ data/mvps/*/
 data/reports/*.html
 data/reports/*.txt
 !data/reports/.gitkeep
+# Proyectos generados por project_builder (V1 funcionales)
+data/projects/*/
+!data/projects/.gitkeep
 
 # Hermes runtime (montado como volumen local en docker-compose)
 hermes-data/
